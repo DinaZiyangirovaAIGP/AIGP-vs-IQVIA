@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>AIGP vs IQVIA — Data Alignment</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+
+<style>
+:root{
+  --bg:#0f1117;
+  --surface:#181c27;
+  --surface2:#1e2333;
+  --border:#2a2f42;
+  --text:#e8eaf0;
+  --muted:#6b7194;
+
+  /* ✅ RESTORED ORIGINAL COLORS */
+  --aigp:#9CA3AF;
+  --iqvia:#38BDF8;
+
+  --pos:#34d399;
+  --neg:#f87171;
+}
+
+body{
+  margin:0;
+  font-family:Inter,system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  font-size:12px;
+}
+
+header{
+  padding:14px 24px;
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+}
+
+.legend span{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin-left:16px;
+  color:var(--muted);
+  font-size:11px;
+}
+.dot{
+  width:8px;height:8px;border-radius:50%;
+}
+
+.filters{
+  display:flex;
+  gap:10px;
+  padding:10px 24px;
+  border-bottom:1px solid var(--border);
+  background:var(--surface);
+}
+select,button{
+  background:var(--surface2);
+  border:1px solid var(--border);
+  color:var(--text);
+  font-size:12px;
+  padding:5px 8px;
+  border-radius:6px;
+}
+
+main{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  height:calc(100vh - 110px);
+}
+
+.left{
+  padding:16px 20px;
+  border-right:1px solid var(--border);
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+.kpis{
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:10px;
+}
+.kpi{
+  background:var(--surface2);
+  border:1px solid var(--border);
+  border-radius:8px;
+  padding:10px;
+}
+.kpi label{
+  font-size:9px;
+  color:var(--muted);
+}
+.kpi .val{
+  font-size:18px;
+}
+
+.right{
+  display:flex;
+  flex-direction:column;
+}
+
+.table-wrap{
+  flex:1;
+  overflow:auto;
+  border-bottom:1px solid var(--border);
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+}
+th,td{
+  padding:6px 10px;
+  border-bottom:1px solid var(--border);
+}
+th{
+  position:sticky;
+  top:0;
+  background:var(--surface);
+  color:var(--muted);
+  font-size:9px;
+}
+tr:hover{background:rgba(255,255,255,0.03)}
+.clickable{cursor:pointer}
+</style>
+</head>
+
+<body>
+
+<header>
+  <div>
+    <b>AIGP vs IQVIA — Data Alignment</b><br/>
+    <span style="color:var(--muted)">Internal control dashboard</span>
+  </div>
+  <div class="legend">
+    <span><div class="dot" style="background:var(--aigp)"></div>AIGP</span>
+    <span><div class="dot" style="background:var(--iqvia)"></div>IQVIA</span>
+  </div>
+</header>
+
+<div class="filters">
+  <select id="monthSel" multiple></select>
+  <select id="regionSel" multiple></select>
+  <select id="skuSel" multiple></select>
+
+  <!-- ✅ Indicator: ONLY Units / KZT -->
+  <select id="indicatorSel">
+    <option value="units">Units</option>
+    <option value="kzt">KZT</option>
+  </select>
+
+  <!-- ✅ RX / OTC separate -->
+  <select id="rxOtcSel">
+    <option value="all">RX + OTC</option>
+    <option value="PRESC">RX</option>
+    <option value="NPRES">OTC</option>
+  </select>
+
+  <button onclick="clearFilters()">Clear filters</button>
+</div>
+
+<main>
+  <div class="left">
+    <div class="kpis">
+      <div class="kpi"><label>AIGP</label><div id="kpiA" class="val"></div></div>
+      <div class="kpi"><label>IQVIA</label><div id="kpiI" class="val"></div></div>
+      <div class="kpi"><label>Dev %</label><div id="kpiPct" class="val"></div></div>
+      <div class="kpi"><label>Dev abs</label><div id="kpiAbs" class="val"></div></div>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <div class="right">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Region</th><th>AIGP</th><th>IQVIA</th><th>Dev %</th></tr></thead>
+        <tbody id="regionTable"></tbody>
+      </table>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>SKU</th><th>AIGP</th><th>IQVIA</th><th>Dev %</th></tr></thead>
+        <tbody id="skuTable"></tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script>
+/* =========================
+   DATA (embedded)
+========================= */
+const DATA = [
+  {m:'2025-01',region:'ALMATY',sku:'TANFLEX',rx:'NPRES',a_units:1000,i_units:950,a_kzt:120000,i_kzt:115000},
+  {m:'2025-02',region:'ALMATY',sku:'TANFLEX',rx:'NPRES',a_units:1100,i_units:1000,a_kzt:130000,i_kzt:120000},
+  {m:'2025-01',region:'ASTANA',sku:'OSELTAMIVIR',rx:'PRESC',a_units:600,i_units:620,a_kzt:200000,i_kzt:210000},
+];
+
+/* =========================
+   STATE
+========================= */
+let selMonth=new Set(), selRegion=new Set(), selSku=new Set();
+
+/* =========================
+   HELPERS
+========================= */
+const uniq=(arr,key)=>[...new Set(arr.map(d=>d[key]))];
+const sum=(arr,key)=>arr.reduce((s,d)=>s+d[key],0);
+
+/* =========================
+   INIT FILTERS
+========================= */
+function fill(sel,arr){
+  sel.innerHTML='';
+  arr.forEach(v=>{
+    const o=document.createElement('option');
+    o.value=o.textContent=v;
+    sel.appendChild(o);
+  });
+}
+fill(monthSel,uniq(DATA,'m'));
+fill(regionSel,uniq(DATA,'region'));
+fill(skuSel,uniq(DATA,'sku'));
+
+/* =========================
+   FILTER LOGIC
+========================= */
+function getFiltered(){
+  const rx = rxOtcSel.value;
+  const ind = indicatorSel.value==='units';
+
+  const byRegionSku = DATA.filter(d =>
+    (selRegion.size===0||selRegion.has(d.region)) &&
+    (selSku.size===0||selSku.has(d.sku)) &&
+    (rx==='all'||d.rx===rx)
+  );
+
+  const byMonth = byRegionSku.filter(d =>
+    selMonth.size===0||selMonth.has(d.m)
+  );
+
+  return {
+    chart:byRegionSku,     // ✅ month NOT applied
+    kpi:byMonth,
+    tables:byMonth,
+    ind
+  };
+}
+
+/* =========================
+   CHART
+========================= */
+const ctx=document.getElementById('chart');
+const chart=new Chart(ctx,{
+  type:'line',
+  data:{labels:[],datasets:[
+    {label:'AIGP',borderColor:getComputedStyle(document.documentElement).getPropertyValue('--aigp'),data:[]},
+    {label:'IQVIA',borderColor:getComputedStyle(document.documentElement).getPropertyValue('--iqvia'),data:[]}
+  ]},
+  options:{responsive:true,maintainAspectRatio:false}
+});
+
+/* =========================
+   UPDATE
+========================= */
+function update(){
+  selMonth=new Set([...monthSel.selectedOptions].map(o=>o.value));
+  selRegion=new Set([...regionSel.selectedOptions].map(o=>o.value));
+  selSku=new Set([...skuSel.selectedOptions].map(o=>o.value));
+
+  const {chart:cd,kpi,tables,ind}=getFiltered();
+
+  /* KPI */
+  const ak = sum(kpi,ind?'a_units':'a_kzt');
+  const ik = sum(kpi,ind?'i_units':'i_kzt');
+  kpiA.textContent=ak.toLocaleString();
+  kpiI.textContent=ik.toLocaleString();
+
+  const da=ak-ik;
+  kpiAbs.textContent=da.toLocaleString();
+  kpiPct.textContent=(ik?da/ik*100:0).toFixed(1)+'%';
+
+  /* Chart */
+  chart.data.labels=uniq(cd,'m');
+  chart.data.datasets[0].data=chart.data.labels.map(m=>sum(cd.filter(d=>d.m===m),ind?'a_units':'a_kzt'));
+  chart.data.datasets[1].data=chart.data.labels.map(m=>sum(cd.filter(d=>d.m===m),ind?'i_units':'i_kzt'));
+  chart.update();
+
+  /* Tables */
+  regionTable.innerHTML='';
+  uniq(tables,'region').forEach(r=>{
+    const d=tables.filter(x=>x.region===r);
+    regionTable.innerHTML+=`<tr class="clickable" onclick="toggleRegion('${r}')"><td>${r}</td>
+      <td>${sum(d,ind?'a_units':'a_kzt')}</td>
+      <td>${sum(d,ind?'i_units':'i_kzt')}</td>
+      <td>${((sum(d,ind?'a_units':'a_kzt')-sum(d,ind?'i_units':'i_kzt'))/sum(d,ind?'i_units':'i_kzt')*100||0).toFixed(1)}%</td></tr>`;
+  });
+
+  skuTable.innerHTML='';
+  uniq(tables,'sku').forEach(s=>{
+    const d=tables.filter(x=>x.sku===s);
+    skuTable.innerHTML+=`<tr class="clickable" onclick="toggleSku('${s}')"><td>${s}</td>
+      <td>${sum(d,ind?'a_units':'a_kzt')}</td>
+      <td>${sum(d,ind?'i_units':'i_kzt')}</td>
+      <td>${((sum(d,ind?'a_units':'a_kzt')-sum(d,ind?'i_units':'i_kzt'))/sum(d,ind?'i_units':'i_kzt')*100||0).toFixed(1)}%</td></tr>`;
+  });
+}
+
+/* =========================
+   INTERACTION
+========================= */
+function toggleRegion(r){
+  selRegion.has(r)?selRegion.delete(r):(selRegion.clear(),selRegion.add(r));
+  update();
+}
+function toggleSku(s){
+  selSku.has(s)?selSku.delete(s):(selSku.clear(),selSku.add(s));
+  update();
+}
+function clearFilters(){
+  monthSel.selectedIndex=-1;
+  regionSel.selectedIndex=-1;
+  skuSel.selectedIndex=-1;
+  rxOtcSel.value='all';
+  indicatorSel.value='units';
+  selMonth.clear(); selRegion.clear(); selSku.clear();
+  update();
+}
+
+document.querySelectorAll('select').forEach(s=>s.onchange=update);
+update();
+</script>
+
+</body>
+</html>
